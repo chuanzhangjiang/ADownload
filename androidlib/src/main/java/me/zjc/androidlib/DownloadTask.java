@@ -98,6 +98,10 @@ public final class DownloadTask implements ITask {
         return this;
     }
 
+    /**
+     * 继续下载
+     * @return 自生
+     */
     public DownloadTask continueDownload() {
         synchronized (this) {
             if (status != TaskStatus.PAUSE_SUCCESS)
@@ -129,6 +133,9 @@ public final class DownloadTask implements ITask {
         return status == TaskStatus.PAUSE;
     }
 
+    /**
+     * 暂停方法
+     */
     @Override
     public void pause() {
         synchronized (this) {
@@ -253,6 +260,11 @@ public final class DownloadTask implements ITask {
             return this;
         }
 
+        /**
+         * 设置拦截器
+         * @param interceptors 拦截器{@link Interceptor}
+         * @return 自生
+         */
         public DownloadBuilder setInterceptors(@NonNull Interceptor... interceptors) {
             this.api = DownloadApiProvider.newDownloadApi(interceptors);
             return this;
