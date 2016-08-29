@@ -1,7 +1,6 @@
 package me.zjc.androidlib;
 
 /**
- * Created by ChuanZhangjiang on 2016/8/28.
  * download info class
  * include download info
  */
@@ -29,5 +28,13 @@ public final class DownloadInfo {
      */
     public long getContentLength() {
         return contentLength;
+    }
+
+    @Override
+    public String toString() {
+        return "DownloadInfo{" +
+                "progress=" + progress +
+                ", contentLength=" + contentLength +
+                '}';
     }
 }

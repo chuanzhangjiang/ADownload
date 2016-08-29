@@ -25,10 +25,10 @@ public final class DownloadTask implements ITask {
     private final Subject<Object, Object> bus;
     private final DownloadBuilder builder;
     private final DownloadApi mDownloadApi;
-    private ContentLengthListener contentLengthListener;
     private long contentLength;
     private long finishProgress = 0L;
     private Subscription subscription;
+    private DownloadFinishListener mDownloadFinishListener;
 
     @GuardedBy("this")
     private TaskStatus status = TaskStatus.READY;
@@ -38,9 +38,9 @@ public final class DownloadTask implements ITask {
         this.url = builder.url;
         this.fileName = builder.fileName;
         this.path = builder.path;
+        this.mDownloadApi = builder.api;
         this.downloadListener = initDownloadListener();
         this.bus = new SerializedSubject<>(PublishSubject.create());
-        this.mDownloadApi = builder.api;
     }
 
     private DownloadHelper.DownloadListener initDownloadListener() {
@@ -48,20 +48,19 @@ public final class DownloadTask implements ITask {
             @Override
             public void beforeDownload(long contentLength) {
                 DownloadTask.this.contentLength = contentLength;
-                if (contentLengthListener != null){
-                    contentLengthListener.onGet(contentLength);
-                }
             }
 
             @Override
-            public void onDownload(long progress) {
-                finishProgress += progress;
-                bus.onNext(finishProgress);
+            public void onDownload(DownloadInfo info) {
+                finishProgress += info.getProgress();
+                bus.onNext(info);
             }
 
             @Override
             public void onDownloadFinish() {
                 status = TaskStatus.FINISH;
+                if (mDownloadFinishListener != null)
+                    mDownloadFinishListener.onFinish();
                 bus.onCompleted();
             }
 
@@ -82,6 +81,18 @@ public final class DownloadTask implements ITask {
         };
     }
 
+    public interface DownloadFinishListener {
+        void onFinish();
+    }
+
+    public DownloadTask onDownloadFinish(DownloadFinishListener listener) {
+        if (status != TaskStatus.READY) {
+            throw new IllegalStateException("please invoke onDownloadFinish() before start()");
+        }
+        this.mDownloadFinishListener = listener;
+        return this;
+    }
+
     /**
      * 开始下载
      * @throws IllegalStateException
@@ -100,7 +111,7 @@ public final class DownloadTask implements ITask {
 
     /**
      * 继续下载
-     * @return 自生
+     * @return self
      */
     public DownloadTask continueDownload() {
         synchronized (this) {
@@ -111,16 +122,6 @@ public final class DownloadTask implements ITask {
         subscription = DownloadHelper.getInstance()
                 .continueDownload(url, fileName, path, downloadListener, this, mDownloadApi,
                         finishProgress, contentLength);
-        return this;
-    }
-
-    /**
-     * 第一时间获取下载内容长度
-     * @param listener 监听器
-     * @return DownloadTask自生
-     */
-    public DownloadTask onGetContentLength(@NonNull ContentLengthListener listener) {
-        this.contentLengthListener = listener;
         return this;
     }
 
@@ -146,13 +147,6 @@ public final class DownloadTask implements ITask {
     }
 
     /**
-     * 获取下载内容大小的监听器
-     */
-    public interface ContentLengthListener {
-        void onGet(long contentLength);
-    }
-
-    /**
      * 取消任务
      * @throws IllegalStateException
      */
@@ -174,7 +168,8 @@ public final class DownloadTask implements ITask {
     }
 
     private void doCancel() {
-        subscription.unsubscribe();
+        if (subscription != null)
+            subscription.unsubscribe();
         File file = new File(path + fileName);
         if (file.exists())
             //noinspection ResultOfMethodCallIgnored
@@ -183,7 +178,8 @@ public final class DownloadTask implements ITask {
     }
 
     private void doPause() {
-        subscription.unsubscribe();
+        if (subscription != null)
+            subscription.unsubscribe();
         status = TaskStatus.PAUSE_SUCCESS;
     }
 
@@ -192,8 +188,8 @@ public final class DownloadTask implements ITask {
      * @return 可被观察的对象
      * @see Observable;
      */
-    public Observable<Long> toObservable() {
-        return bus.ofType(Long.class);
+    public Observable<DownloadInfo> toObservable() {
+        return bus.ofType(DownloadInfo.class);
     }
 
     /**
@@ -207,17 +203,6 @@ public final class DownloadTask implements ITask {
 
     private enum TaskStatus {
         READY, START, PAUSE, PAUSE_SUCCESS, CONTINUE, CANCEL, CANCEL_SUCCESS, FINISH
-    }
-
-    /**
-     * 获取下载内容的大小
-     * 只有在下载开始的时候才能被获取到
-     * @return 下载内容的大小；
-     */
-    public long getContentLength() {
-        if (status == TaskStatus.READY)
-            throw new IllegalStateException("task do not connected source, can not get content length!");
-        return contentLength;
     }
 
     /**

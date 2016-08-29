@@ -46,7 +46,7 @@ final class DownloadUtils {
             for (long readLength;
                  !task.isCancel() && !task.isPause() && (readLength = bis.read(buf)) != -1; ) {
                 bos.write(buf, 0, (int) readLength);
-                listener.onDownload(readLength);
+                listener.onDownload(new DownloadInfo(readLength, responseBody.contentLength()));
             }
         } catch (IOException e) {
             onDownloadError(listener, e);

@@ -90,41 +90,12 @@ final class DownloadHelper {
                 });
     }
 
-    /**
-     * 下载监听器
-     */
     interface DownloadListener{
-        /**
-         * 在获取到资源的时候调用
-         * @param contentLength 资源的长度，单位byte
-         */
         void beforeDownload(long contentLength);
-
-        /**
-         * 在下载的时候调用，传入下载进度增量
-         * @param progress 下载进度增量，单位byte
-         */
-        void onDownload(long progress);
-
-        /**
-         * 在下载结束的时候调用
-         */
+        void onDownload(DownloadInfo downloadInfo);
         void onDownloadFinish();
-
-        /**
-         * 在下载失败的时候回调
-         * @param e 失败时抛出的异常
-         */
         void onDownloadFailure(Throwable e);
-
-        /**
-         * 在取消成功之后调用
-         */
         void onCancelSuccess();
-
-        /**
-         * 在暂停成功之后调用
-         */
         void onPauseSuccess();
     }
 
