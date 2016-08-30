@@ -2,83 +2,20 @@ package me.zjc.androidlib;
 
 import android.support.annotation.NonNull;
 
-import net.jcip.annotations.GuardedBy;
-
-import java.io.File;
 
 import okhttp3.Interceptor;
 import rx.Observable;
-import rx.Subscription;
-import rx.subjects.PublishSubject;
-import rx.subjects.SerializedSubject;
-import rx.subjects.Subject;
 
 /**
  * Created by ChuanZhangjiang on 2016/8/7.
  * 下载任务
  */
-public final class DownloadTask implements ITask {
-    private final String url;
-    private final String fileName;
-    private final String path;
-    private final DownloadHelper.DownloadListener downloadListener;
-    private final Subject<Object, Object> bus;
-    private final DownloadBuilder builder;
-    private final DownloadApi mDownloadApi;
-    private long contentLength;
-    private long finishProgress = 0L;
-    private Subscription subscription;
-    private DownloadFinishListener mDownloadFinishListener;
+public final class DownloadTask {
 
-    @GuardedBy("this")
-    private TaskStatus status = TaskStatus.READY;
+    private final IController mController;
 
-    private DownloadTask(DownloadBuilder builder) {
-        this.builder = builder;
-        this.url = builder.url;
-        this.fileName = builder.fileName;
-        this.path = builder.path;
-        this.mDownloadApi = builder.api;
-        this.downloadListener = initDownloadListener();
-        this.bus = new SerializedSubject<>(PublishSubject.create());
-    }
-
-    private DownloadHelper.DownloadListener initDownloadListener() {
-        return new DownloadHelper.DownloadListener() {
-            @Override
-            public void beforeDownload(long contentLength) {
-                DownloadTask.this.contentLength = contentLength;
-            }
-
-            @Override
-            public void onDownload(DownloadInfo info) {
-                finishProgress += info.getProgress();
-                bus.onNext(info);
-            }
-
-            @Override
-            public void onDownloadFinish() {
-                status = TaskStatus.FINISH;
-                if (mDownloadFinishListener != null)
-                    mDownloadFinishListener.onFinish();
-                bus.onCompleted();
-            }
-
-            @Override
-            public void onDownloadFailure(Throwable e) {
-                bus.onError(e);
-            }
-
-            @Override
-            public void onCancelSuccess() {
-                doCancel();
-            }
-
-            @Override
-            public void onPauseSuccess() {
-                doPause();
-            }
-        };
+    private DownloadTask(IController controller) {
+        this.mController = controller;
     }
 
     public interface DownloadFinishListener {
@@ -86,10 +23,7 @@ public final class DownloadTask implements ITask {
     }
 
     public DownloadTask onDownloadFinish(DownloadFinishListener listener) {
-        if (status != TaskStatus.READY) {
-            throw new IllegalStateException("please invoke onDownloadFinish() before start()");
-        }
-        this.mDownloadFinishListener = listener;
+        mController.setDownloadFinishListener(listener);
         return this;
     }
 
@@ -99,13 +33,7 @@ public final class DownloadTask implements ITask {
      * @return DownloadTask 自身对象
      */
     public DownloadTask start() {
-        synchronized (this) {
-            if (status != TaskStatus.READY)
-                throw new IllegalStateException("dirty task can`t be start");
-            status = TaskStatus.START;
-        }
-        subscription = DownloadHelper.getInstance().baseDownload(url, fileName, path, downloadListener
-                , this, mDownloadApi);
+        mController.start();
         return this;
     }
 
@@ -114,49 +42,23 @@ public final class DownloadTask implements ITask {
      * @return self
      */
     public DownloadTask continueDownload() {
-        synchronized (this) {
-            if (status != TaskStatus.PAUSE_SUCCESS)
-                throw new IllegalStateException("only paused successful task can be continue");
-            status = TaskStatus.CONTINUE;
-        }
-        subscription = DownloadHelper.getInstance()
-                .continueDownload(url, fileName, path, downloadListener, this, mDownloadApi,
-                        finishProgress, contentLength);
+        mController.continueDownload();
         return this;
-    }
-
-    /**
-     * 查看任务状态是否<b>正在</b>暂停
-     * @return 是否暂停，true是，false不是
-     */
-    @Override
-    public synchronized boolean isPause() {
-        return status == TaskStatus.PAUSE;
     }
 
     /**
      * 暂停方法
      */
-    @Override
     public void pause() {
-        synchronized (this) {
-            if (status != TaskStatus.START && status != TaskStatus.CONTINUE)
-                throw new IllegalStateException("only executed task can be pause");
-            status = TaskStatus.PAUSE;
-        }
+        mController.pause();
     }
 
     /**
      * 取消任务
      * @throws IllegalStateException
      */
-    @Override
     public void cancel() {
-        synchronized (this) {
-            if (status != TaskStatus.START && status != TaskStatus.CONTINUE)
-                throw new IllegalStateException("only executed task can be canceled");
-            status = TaskStatus.CANCEL;
-        }
+        mController.cancel();
     }
 
     /**
@@ -164,23 +66,7 @@ public final class DownloadTask implements ITask {
      * @return 克隆之后的任务
      */
     public DownloadTask selfClone() {
-        return new DownloadTask(builder);
-    }
-
-    private void doCancel() {
-        if (subscription != null)
-            subscription.unsubscribe();
-        File file = new File(path + fileName);
-        if (file.exists())
-            //noinspection ResultOfMethodCallIgnored
-            file.delete();
-        status = TaskStatus.CANCEL_SUCCESS;
-    }
-
-    private void doPause() {
-        if (subscription != null)
-            subscription.unsubscribe();
-        status = TaskStatus.PAUSE_SUCCESS;
+        return mController.cloneTask();
     }
 
     /**
@@ -189,20 +75,7 @@ public final class DownloadTask implements ITask {
      * @see Observable;
      */
     public Observable<DownloadInfo> toObservable() {
-        return bus.ofType(DownloadInfo.class);
-    }
-
-    /**
-     * 获取任务是否<b>正在</b>取消
-     * @return 任务是否<b>正在</b>取消
-     */
-    @Override
-    public synchronized boolean isCancel() {
-        return status == TaskStatus.CANCEL;
-    }
-
-    private enum TaskStatus {
-        READY, START, PAUSE, PAUSE_SUCCESS, CONTINUE, CANCEL, CANCEL_SUCCESS, FINISH
+        return mController.toObservable();
     }
 
     /**
@@ -273,7 +146,12 @@ public final class DownloadTask implements ITask {
             if (api == null) {
                 api = DownloadApiProvider.getDefaultDownLoadApi();
             }
-            return new DownloadTask(this);
+
+            DownloadExecutor executor = new DownloadExecutor(api, url, fileName, path);
+            IController controller = new DownloadController(executor);
+            DownloadTask task = new DownloadTask(controller);
+            controller.setBuilder(this);
+            return task;
         }
     }
 }

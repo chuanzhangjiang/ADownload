@@ -6,7 +6,6 @@ import java.math.BigInteger;
 import java.security.MessageDigest;
 
 /**
- * Created by ChuanZhangjiang on 2016/8/19.
  * MD5工具类
  * 用于计算MD5值
  */
